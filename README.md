@@ -15,7 +15,7 @@
 To install `cidrex`, you need to have [Go](https://golang.org) installed on your system. You can then install the binary using the following commands:
 
 ```bash
-go install github.com/d3mondev/cidrex
+go install github.com/d3mondev/cidrex@latest
 ```
 
 ## Usage
