@@ -45,49 +45,64 @@ func main() {
 		reader = os.Stdin
 	}
 
-	processInput(reader, includeIPv4, includeIPv6)
-}
+	// Create a new buffered writer to stdout
+	var writer = bufio.NewWriterSize(os.Stdout, 32*1024)
+	defer writer.Flush()
 
-// processInput reads from the provided reader and processes each line
-// to extract and print IP addresses based on the specified filters.
-func processInput(reader io.Reader, includeIPv4, includeIPv6 bool) {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text()
-		printIPsFromLine(line, includeIPv4, includeIPv6)
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := processInput(reader, writer, includeIPv4, includeIPv6); err != nil {
+		fmt.Fprintf(os.Stderr, "Error processing input: %v\n", err)
 		os.Exit(1)
 	}
 }
 
+// processInput reads from the provided reader and processes each line
+// to extract and print IP addresses based on the specified filters.
+func processInput(reader io.Reader, writer io.Writer, includeIPv4, includeIPv6 bool) error {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		if err := printIPsFromLine(writer, scanner.Text(), includeIPv4, includeIPv6); err != nil {
+			return err
+		}
+	}
+
+	return scanner.Err()
+}
+
 // printIPsFromLine parses a single line as an IP address or CIDR range
 // and prints the contained IP addresses based on the specified filters.
-func printIPsFromLine(line string, includeIPv4, includeIPv6 bool) {
+func printIPsFromLine(writer io.Writer, line string, includeIPv4, includeIPv6 bool) error {
 	// First, try parsing as a single IP address
 	ip := net.ParseIP(line)
 	if ip != nil {
-		if (includeIPv4 && ip.To4() != nil) || (includeIPv6 && ip.To4() == nil) {
-			fmt.Println(ip)
-		}
-		return
+		return printIP(writer, ip, includeIPv4, includeIPv6)
 	}
 
 	// If not a single IP, try parsing as a CIDR range
 	_, ipNet, err := net.ParseCIDR(line)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		// Print message to stderr but don't return an error to continue processing
+		fmt.Fprintf(os.Stderr, "invalid IP or CIDR: %s\n", line)
+		return nil
 	}
 
 	// Iterate through all IPs in the CIDR range
 	for ip := ipNet.IP.Mask(ipNet.Mask); ipNet.Contains(ip); incrementIP(ip) {
-		if (includeIPv4 && ip.To4() != nil) || (includeIPv6 && ip.To4() == nil) {
-			fmt.Println(ip)
+		if err := printIP(writer, ip, includeIPv4, includeIPv6); err != nil {
+			return err
 		}
 	}
+
+	return nil
+}
+
+// printIP writes the given IP address to the provided writer if it matches the
+// inclusion criteria specified by includeIPv4 and includeIPv6.
+func printIP(writer io.Writer, ip net.IP, includeIPv4, includeIPv6 bool) error {
+	if (includeIPv4 && ip.To4() != nil) || (includeIPv6 && ip.To4() == nil) {
+		_, err := fmt.Fprintln(writer, ip)
+		return err
+	}
+	return nil
 }
 
 // incrementIP increments the given IP address by 1.
